@@ -19,6 +19,7 @@ package main
 
 import (
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/moficodes/kube-get-agent/internals/handler"
 	"github.com/moficodes/kube-get-agent/pkg/k8s"
 	"k8s.io/client-go/util/homedir"
@@ -34,7 +35,6 @@ func main() {
 	//}
 	//flag.Parse()
 	//fmt.Println(*kubeconfig)
-	e := echo.New()
 	home := homedir.HomeDir()
 	kubeconfig := filepath.Join(home, ".kube", "config")
 
@@ -45,6 +45,35 @@ func main() {
 
 	h := handler.NewHandler(clientset)
 
-	e.GET("/pods", h.GetAllPods)
+	e := echo.New()
+	e.Use(
+		middleware.CORS(),
+		middleware.GzipWithConfig(middleware.GzipConfig{
+			Level: 5,
+		}),
+	)
+
+	e.Use(middleware.Secure())
+	api := e.Group("/api/v1")
+	api.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: "method=${method}, uri=${uri}, status=${status}, time=${latency_human}\n",
+	}))
+	// http://localhost:8111/api/v1/pods
+	// http://localhost:8111/api/v1/pods?podprefix=calico
+	api.GET("/pods", h.GetAllPods)
+	// http://localhost:8111/api/v1/pods/kube-system
+	// http://localhost:8111/api/v1/pods/kube-system?podname=calico-node
+	// http://localhost:8111/api/v1/pods/kube-system?label=k8s-app=calico-node
+	api.GET("/pods/:namespace", h.GetAllPodsInNamespace)
+
+	api.GET("/nodes", h.GetAllNodes)
+
+	api.GET("/namespaces", h.GetAllNamespaces)
+
+	api.GET("/ingresses", h.GetAllIngress)
+
+	api.GET("/deployments", h.GetAllDeployment)
+	api.GET("/deployments/:namespace", h.GetAllDeploymentInNamespace)
+
 	e.Logger.Fatal(e.Start(":8111"))
 }
